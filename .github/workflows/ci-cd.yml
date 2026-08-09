@@ -1,0 +1,127 @@
+name: CI/CD
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  merge_group:
+  workflow_dispatch:
+    inputs:
+      manual_version:
+        description: "Force version"
+        required: false
+        default: ""
+
+jobs:
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run format:check
+
+  build-and-test:
+    name: Build & Test (Node ${{ matrix.node-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node-version: [18, 20, 22]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - run: npm run test:coverage
+      # Size budget is a hard gate: this code runs in customers'
+      # customers' browsers. Core ≤ 12 KB gzipped, react ≤ 3 KB extra.
+      - run: npm run size
+
+  ci-gate:
+    if: always()
+    needs: [lint, build-and-test]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: smplkit/.github-public/actions/ci-gate@main
+        with:
+          needs: ${{ toJson(needs) }}
+
+  release:
+    name: Release
+    needs: [ci-gate]
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: production
+    permissions:
+      contents: write
+      issues: write
+      pull-requests: write
+      id-token: write
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Prepare release
+        id: prep
+        uses: smplkit/.github-public/actions/sdk-release-prepare@main
+        with:
+          manual_version: ${{ github.event.inputs.manual_version }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Node
+        if: steps.prep.outputs.released == 'true'
+        uses: actions/setup-node@v7
+        with:
+          node-version-file: ".nvmrc"
+          cache: npm
+
+      - name: Upgrade npm to latest
+        if: steps.prep.outputs.released == 'true'
+        run: npm install -g npm@latest
+
+      - name: Install dependencies
+        if: steps.prep.outputs.released == 'true'
+        run: npm ci
+
+      # Stamp BEFORE building: tsup inlines package.json's version into
+      # the bundles (see tsup.config.ts), so the version must be in
+      # package.json when the build runs — not just when `npm publish`
+      # reads it.
+      - name: Stamp version
+        if: steps.prep.outputs.released == 'true'
+        run: npm version "${{ steps.prep.outputs.version }}" --no-git-tag-version --allow-same-version
+
+      - name: Build
+        if: steps.prep.outputs.released == 'true'
+        run: npm run build
+
+      - name: Publish to npm
+        if: steps.prep.outputs.released == 'true'
+        # publishConfig.provenance=true in package.json + id-token: write
+        # permission triggers OIDC trusted publishing automatically — no
+        # NPM_TOKEN needed.
+        run: npm publish
+
+      - name: Summary
+        run: |
+          echo "## Publish" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          if [ "${{ steps.prep.outputs.released }}" = "true" ]; then
+            echo "**Version:** v${{ steps.prep.outputs.version }}" >> "$GITHUB_STEP_SUMMARY"
+            echo "**Published to npm:** yes" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "No release warranted by commits since last release." >> "$GITHUB_STEP_SUMMARY"
+          fi

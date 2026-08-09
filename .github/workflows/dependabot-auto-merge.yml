@@ -1,0 +1,64 @@
+name: dependabot-auto-merge
+
+# Auto-merges Dependabot PRs that bump any dependency by a patch or
+# minor version. Majors are left as PRs for review.
+#
+# CI is the gate: if lint, format, or tests fail on the bumped
+# dependency, the PR sits open until a human investigates. Same
+# model as terraform-provider-smplkit's auto-merge workflow.
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  auto-merge:
+    name: auto-merge patch/minor bumps
+    runs-on: ubuntu-latest
+    if: github.event.pull_request.user.login == 'dependabot[bot]'
+    steps:
+      - name: fetch Dependabot metadata
+        id: meta
+        uses: dependabot/fetch-metadata@v3
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: approve patch/minor bumps (excludes customer-facing prod deps)
+        if: |
+          contains(fromJSON('["version-update:semver-patch","version-update:semver-minor"]'), steps.meta.outputs.update-type) &&
+          (steps.meta.outputs.package-ecosystem == 'github-actions' ||
+           steps.meta.outputs.dependency-type != 'direct:production')
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
+        run: |
+          # SDK floor protection: only approve dev deps, indirect
+          # deps, and github-actions bumps. A customer-facing
+          # production-dep bump sits open awaiting human review so
+          # we never silently tighten the version floor we publish
+          # to npm customers. See ~/.claude/CLAUDE.md "SDK Dependency
+          # Floor Sensitivity".
+          gh pr review "$PR_URL" --approve 2>/dev/null || true
+
+      - name: enable auto-merge for patch/minor bumps (excludes customer-facing prod deps)
+        if: |
+          contains(fromJSON('["version-update:semver-patch","version-update:semver-minor"]'), steps.meta.outputs.update-type) &&
+          (steps.meta.outputs.package-ecosystem == 'github-actions' ||
+           steps.meta.outputs.dependency-type != 'direct:production')
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
+        run: |
+          # main uses a merge queue, which rejects an explicit merge
+          # strategy ("The merge strategy for main is set by the merge
+          # queue") — plain --auto adds the PR to the queue instead and
+          # the queue merges once its checks pass. The squash fallbacks
+          # keep this step working if the workflow is ever copied to a
+          # repo without a merge queue.
+          gh pr merge "$PR_URL" --auto ||
+            gh pr merge "$PR_URL" --auto --squash ||
+            gh pr merge "$PR_URL" --squash

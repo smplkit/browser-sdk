@@ -1,0 +1,57 @@
+# Dependabot for browser-sdk.
+#
+# Every dependency bump is a `fix:` — a version change is a real
+# change to the release inputs and warrants a new patch publish via
+# semantic-release. Per the SDK commit-message lockdown in
+# ~/.claude/CLAUDE.md, `fix:` is the maximum bump permitted.
+#
+# Runtime and dev npm deps are grouped separately (package.json
+# splits cleanly into dependencies / devDependencies) so each weekly
+# cycle yields at most two npm PRs (plus one for actions) rather
+# than a flood. Major bumps land as individual PRs.
+#
+# Patch + minor bumps auto-merge on green CI via the sibling
+# .github/workflows/dependabot-auto-merge.yml workflow.
+
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: "/"
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: "fix"
+      include: "scope"
+    open-pull-requests-limit: 10
+    # SDK floor protection: widen the existing range rather than
+    # replacing it. For `^X.Y.Z`-style runtime caret ranges, a new
+    # major causes Dependabot to widen (e.g., `^8.20.0 || ^9.0.0`)
+    # so customers on either the old or new major can still resolve
+    # the SDK. Without this, Dependabot would replace `^8.x` with
+    # `^9.x` and silently lock out 8.x customers.
+    versioning-strategy: widen
+    groups:
+      runtime:
+        dependency-type: production
+        update-types:
+          - minor
+          - patch
+      dev:
+        dependency-type: development
+        update-types:
+          - minor
+          - patch
+
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: "fix"
+      include: "scope"
+    open-pull-requests-limit: 10
+    groups:
+      actions:
+        update-types:
+          - minor
+          - patch
