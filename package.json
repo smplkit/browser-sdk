@@ -72,7 +72,7 @@
   "devDependencies": {
     "@testing-library/react": "^16.1.0",
     "@types/json-logic-js": "^2.0.8",
-    "@types/node": "^22.10.0",
+    "@types/node": "^26.1.2",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
     "@typescript-eslint/eslint-plugin": "^8.18.0",
