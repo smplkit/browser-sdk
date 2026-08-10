@@ -30,6 +30,21 @@ updates:
     # the SDK. Without this, Dependabot would replace `^8.x` with
     # `^9.x` and silently lock out 8.x customers.
     versioning-strategy: widen
+    # Majors held back while `engines: node >=18` stands. The CI
+    # matrix (18/20/22) is what keeps that floor honest, and these
+    # tools no longer run on it: vitest 4 needs Node >=20, jsdom 30
+    # needs Node >=22.22, and typescript 7 breaks the tsup dts
+    # build. Revisit when the engines floor is raised (or tsup
+    # supports TS7).
+    ignore:
+      - dependency-name: vitest
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "@vitest/coverage-v8"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: jsdom
+        update-types: ["version-update:semver-major"]
+      - dependency-name: typescript
+        update-types: ["version-update:semver-major"]
     groups:
       runtime:
         dependency-type: production
